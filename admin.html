@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex"><title>Admin Panel</title>
+<style>
+:root{--bg:#0b0b0e;--card:#16161c;--line:#262630;--tx:#f2f2f5;--mut:#8b8b99;--red:#d32f2f}
+*{box-sizing:border-box;margin:0;font-family:Inter,system-ui,sans-serif}
+body{background:var(--bg);color:var(--tx);padding:16px;max-width:1100px;margin:auto}
+h1{font-size:20px}h2{font-size:14px;color:var(--mut);margin-bottom:10px;text-transform:uppercase;letter-spacing:1px}
+.top{display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;gap:8px}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:12px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:14px;overflow:hidden}
+.num{font-size:28px;font-weight:700}.lbl{color:var(--mut);font-size:12px}
+.two{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:12px;margin-bottom:12px}
+.row{display:flex;justify-content:space-between;gap:8px;padding:6px 0;border-bottom:1px solid var(--line);font-size:13px}
+.row span:first-child{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.bars{display:flex;align-items:flex-end;gap:4px;height:130px}
+.bar{flex:1;background:var(--red);border-radius:3px 3px 0 0;min-height:2px;position:relative}
+.bar:hover::after{content:attr(data-t);position:absolute;bottom:100%;left:50%;transform:translateX(-50%);background:#000;padding:3px 6px;font-size:11px;white-space:nowrap;border-radius:4px}
+input,button{padding:10px 14px;border-radius:8px;border:1px solid var(--line);background:var(--card);color:var(--tx);font-size:14px}
+button{background:var(--red);border:0;cursor:pointer}
+#login{max-width:320px;margin:20vh auto;text-align:center;display:flex;flex-direction:column;gap:10px}
+#app{display:none}.dot{display:inline-block;width:8px;height:8px;background:#3ddc84;border-radius:50%;margin-right:6px}
+</style></head><body>
+<div id="login"><h1>Admin Login</h1><input id="pw" type="password" placeholder="Password"><button onclick="login()">Login</button><div id="err" class="lbl"></div></div>
+<div id="app">
+<div class="top"><h1><span class="dot"></span>Lexus Parts — Admin</h1><div><span class="lbl" id="upd"></span> <button onclick="load()">Refresh</button> <button onclick="logout()" style="background:#333">Logout</button></div></div>
+<div class="grid" id="kpi"></div>
+<div class="card" style="margin-bottom:12px"><h2>Last 14 days — visits</h2><div class="bars" id="chart"></div></div>
+<div class="two">
+<div class="card"><h2>Product views (last 30 days)</h2><div id="prod"></div></div>
+<div class="card"><h2>Live activity</h2><div id="recent"></div></div>
+<div class="card"><h2>Countries</h2><div id="ctry"></div></div>
+<div class="card"><h2>Devices &amp; Traffic sources</h2><div id="dev"></div><br><div id="ref"></div></div>
+</div></div>
+<script>
+const $=id=>document.getElementById(id);
+const esc=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+let key=sessionStorage.getItem('ak')||'';
+function login(){key=$('pw').value;load()}
+function logout(){sessionStorage.removeItem('ak');location.reload()}
+function sum(days,f){const o={};days.forEach(d=>Object.entries(d[f]).forEach(([k,v])=>o[k]=(o[k]||0)+v));return Object.entries(o).sort((a,b)=>b[1]-a[1])}
+const rows=(a,fmt)=>a.length?a.slice(0,10).map(([k,v])=>`<div class="row"><span>${esc(fmt?fmt(k):k)}</span><b>${v}</b></div>`).join(''):'<div class="lbl">No data yet</div>';
+const ago=t=>{const s=(Date.now()-t)/1e3|0;return s<60?s+'s ago':s<3600?(s/60|0)+'m ago':s<86400?(s/3600|0)+'h ago':(s/86400|0)+'d ago'};
+async function load(){
+  if(!key)return;
+  let r;try{r=await fetch('/.netlify/functions/stats',{headers:{'x-admin-key':key}})}catch(e){$('err').textContent='Server error';return}
+  if(r.status===401){$('err').textContent='Wrong password (or ADMIN_PASSWORD not set)';sessionStorage.removeItem('ak');return}
+  if(!r.ok){$('err').textContent='Error '+r.status;return}
+  sessionStorage.setItem('ak',key);$('login').style.display='none';$('app').style.display='block';
+  const {days,uniqueTotal,recent}=await r.json();
+  const t=days[0],tot=f=>days.reduce((a,d)=>a+d[f],0),clk=days.reduce((a,d)=>a+Object.values(d.clicks).reduce((x,y)=>x+y,0),0);
+  const k=[['Visits today',t.views],['Visitors today',t.visitors],['Visits (30d)',tot('views')],['Unique visitors (30d)',uniqueTotal],['Product views (30d)',days.reduce((a,d)=>a+Object.values(d.products).reduce((x,y)=>x+y,0),0)],['Contact clicks (30d)',clk]];
+  $('kpi').innerHTML=k.map(([l,n])=>`<div class="card"><div class="num">${n}</div><div class="lbl">${l}</div></div>`).join('');
+  const d14=days.slice(0,14).reverse(),mx=Math.max(1,...d14.map(d=>d.views));
+  $('chart').innerHTML=d14.map(d=>`<div class="bar" style="height:${d.views/mx*100}%" data-t="${d.date.slice(5)}: ${d.views} visits, ${d.visitors} visitors"></div>`).join('');
+  $('prod').innerHTML=rows(sum(days,'products'),k=>k.split('|')[1]+' (#'+k.split('|')[0]+')');
+  $('ctry').innerHTML=rows(sum(days,'countries'));
+  $('dev').innerHTML='<h2>Devices</h2>'+rows(sum(days,'devices'));
+  $('ref').innerHTML='<h2>Sources</h2>'+rows(sum(days,'referrers'))+'<h2 style="margin-top:12px">Contact clicks</h2>'+rows(sum(days,'clicks'));
+  $('recent').innerHTML=recent.length?recent.slice(0,15).map(e=>`<div class="row"><span>${e.type==='view'?'👁 Visit':e.type==='product'?'🚗 Viewed':'💬 Clicked'} ${esc(e.detail||'')} · ${esc(e.country)}</span><span class="lbl">${ago(e.t)}</span></div>`).join(''):'<div class="lbl">No activity yet</div>';
+  $('upd').textContent='Updated '+new Date().toLocaleTimeString();
+}
+$('pw').addEventListener('keydown',e=>e.key==='Enter'&&login());
+if(key)load();setInterval(()=>$('app').style.display==='block'&&load(),15000);
+</script></body></html>
